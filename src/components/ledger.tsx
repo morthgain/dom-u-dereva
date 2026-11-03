@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
-import { Leaf } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { ChevronDown, Leaf } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -30,8 +31,8 @@ import {
 import { catalog, productByName } from "@/lib/catalog";
 import { purchaseList, quoteOrder, resolvePrices } from "@/lib/calc";
 import { groschen } from "@/lib/format";
-import { parseOrderText, searchProducts } from "@/lib/parse";
-import type { AuctionMode, Order, OrderItem } from "@/lib/types";
+import { parseOrderText, searchProducts, type ProductHit } from "@/lib/parse";
+import type { AuctionMode, Order, OrderItem, Product } from "@/lib/types";
 
 const STORAGE_KEY = "dom-u-dereva-ledger-v1";
 const STORAGE_EVENT = "ledger-change";
@@ -423,8 +424,8 @@ export function Ledger() {
                 Разобрать текст
               </Button>
               <p className="self-center text-sm text-muted-foreground">
-                До пяти позиций. Число можно поставить в начале или в конце. Название можно писать как в игре:
-                книга подставит строку рецепта.
+                До пяти позиций. Число можно поставить в начале или в конце. Название можно писать как в игре
+                или выбрать стрелкой из списка.
               </p>
             </div>
             {active.unparsed.length > 0 && (
@@ -500,6 +501,7 @@ export function Ledger() {
                         <td className="py-2 pr-2">
                           <ProductField
                             value={slot.name}
+                            profession={active.profession}
                             onChange={(name) => setItem(active, index, { name })}
                           />
                         </td>
@@ -903,42 +905,199 @@ function Choice({
   );
 }
 
-function ProductField({ value, onChange }: { value: string; onChange: (name: string) => void }) {
+const productListProfessions = ["все", ...catalog.professions.filter((item) => item && item !== "-")];
+
+function productChoices(query: string, profession: string): ProductHit[] {
+  const trimmed = query.trim();
+  if (trimmed.length >= 2) return searchProducts(trimmed, catalog.products, 30);
+  const pool = catalog.products.filter((product) => profession === "все" || product.profession === profession);
+  const needle = trimmed.toLowerCase();
+  const unique = new Map<string, Product>();
+  for (const product of pool) {
+    if (!unique.has(product.name)) unique.set(product.name, product);
+  }
+  return [...unique.values()]
+    .filter((product) => !needle || product.name.toLowerCase().includes(needle))
+    .sort((a, b) => a.name.localeCompare(b.name, "ru"))
+    .map((product) => ({ product, alias: null, rank: 0 }));
+}
+
+function ProductField({
+  value,
+  profession,
+  onChange,
+}: {
+  value: string;
+  profession: string;
+  onChange: (name: string) => void;
+}) {
+  const listId = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const matches = searchProducts(value, catalog.products, 8);
+  const [browse, setBrowse] = useState(false);
+  const [listProfession, setListProfession] = useState(profession || "все");
+  const [cursor, setCursor] = useState(0);
+  const [box, setBox] = useState({ top: 0, left: 0, width: 280, maxHeight: 280 });
+  const options = useMemo(
+    () => (open ? productChoices(browse ? "" : value, listProfession) : []),
+    [open, browse, value, listProfession],
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const node = rootRef.current;
+      if (!node) return;
+      const rect = node.getBoundingClientRect();
+      const width = Math.min(Math.max(rect.width, 300), window.innerWidth - 16);
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const maxHeight = Math.min(340, Math.max(180, spaceBelow > 220 ? spaceBelow - 12 : rect.top - 12));
+      const top = spaceBelow > 220 ? rect.bottom + 4 : Math.max(8, rect.top - maxHeight - 4);
+      setBox({ top, left, width, maxHeight });
+    };
+    place();
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (rootRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+
+  useEffect(() => {
+    const node = menuRef.current?.querySelector<HTMLElement>(`[data-index="${cursor}"]`);
+    node?.scrollIntoView({ block: "nearest" });
+  }, [cursor, open, listProfession]);
+
+  function openList() {
+    const next = productListProfessions.includes(profession) ? profession : "все";
+    const choices = productChoices("", next);
+    const current = choices.findIndex((item) => item.product.name === value);
+    setListProfession(next);
+    setBrowse(true);
+    setCursor(current >= 0 ? current : 0);
+    setOpen(true);
+  }
+
+  function choose(name: string) {
+    onChange(name);
+    setBrowse(false);
+    setOpen(false);
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (!open) openList();
+      else setCursor((index) => Math.min(options.length - 1, index + 1));
+    } else if (event.key === "ArrowUp" && open) {
+      event.preventDefault();
+      setCursor((index) => Math.max(0, index - 1));
+    } else if (event.key === "Enter" && open && options[cursor]) {
+      event.preventDefault();
+      choose(options[cursor].product.name);
+    } else if (event.key === "Escape") {
+      setOpen(false);
+    }
+  }
+
   return (
-    <div className="relative">
+    <div ref={rootRef} className="flex min-w-0">
       <Input
         value={value}
         placeholder="Начните название"
+        role="combobox"
         aria-label="Изделие"
+        aria-expanded={open}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        className="min-w-0 rounded-r-none"
         onChange={(event) => {
           onChange(event.target.value);
+          setBrowse(false);
+          setCursor(0);
           setOpen(true);
         }}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onFocus={() => {
+          if (value.trim().length >= 2) {
+            setBrowse(false);
+            setOpen(true);
+          }
+        }}
+        onKeyDown={onKeyDown}
       />
-      {open && matches.length > 0 && (
-        <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border bg-popover p-1 shadow-md">
-          {matches.map(({ product, alias }) => (
-            <li key={product.name}>
-              <button
-                type="button"
-                className="w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  onChange(product.name);
-                  setOpen(false);
+      <button
+        type="button"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-r-lg border border-l-0 border-input bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
+        aria-label="Список изделий"
+        aria-expanded={open}
+        onClick={() => (open && browse ? setOpen(false) : openList())}
+      >
+        <ChevronDown className={`size-4 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            className="fixed z-50 flex flex-col overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-md"
+            style={{ top: box.top, left: box.left, width: box.width, maxHeight: box.maxHeight }}
+          >
+            <label className="flex items-center gap-2 border-b px-2 py-1.5 text-xs text-muted-foreground">
+              Профессия
+              <select
+                aria-label="Профессия в списке"
+                className="h-7 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                value={listProfession}
+                onChange={(event) => {
+                  setListProfession(event.target.value);
+                  setBrowse(true);
+                  setCursor(0);
                 }}
               >
-                <span className="block">{product.name}</span>
-                {alias && <span className="block text-xs text-muted-foreground">в игре: {alias}</span>}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+                {productListProfessions.map((item) => (
+                  <option key={item} value={item}>
+                    {item === "все" ? "Все профессии" : item}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <ul id={listId} className="min-h-0 flex-1 overflow-auto p-1" role="listbox" aria-label="Изделия">
+              {options.length === 0 && <li className="px-2 py-2 text-sm text-muted-foreground">Ничего не найдено</li>}
+              {options.map(({ product, alias }, index) => (
+                <li key={product.name}>
+                  <button
+                    type="button"
+                    role="option"
+                    data-index={index}
+                    aria-selected={index === cursor || product.name === value}
+                    className={`w-full rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent ${index === cursor ? "bg-accent" : ""}`}
+                    onMouseEnter={() => setCursor(index)}
+                    onClick={() => choose(product.name)}
+                  >
+                    <span className="block">{product.name}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {alias ? `в игре: ${alias}` : `${product.profession}${product.level ? ` · ур. ${product.level}` : ""}`}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
