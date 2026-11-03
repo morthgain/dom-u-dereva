@@ -20,7 +20,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { auctionByKey, catalog, productByName } from "@/lib/catalog";
+import {
+  auctionServerSnapshot,
+  auctionSnapshot,
+  refreshAuction,
+  subscribeAuction,
+  type AuctionFeed,
+} from "@/lib/auction-sheet";
+import { catalog, productByName } from "@/lib/catalog";
 import { purchaseList, quoteOrder, resolvePrices } from "@/lib/calc";
 import { groschen } from "@/lib/format";
 import { parseOrderText } from "@/lib/parse";
@@ -143,14 +150,16 @@ export function Ledger() {
   const [importError, setImportError] = useState("");
   const [tab, setTab] = useState("order");
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const auction = useSyncExternalStore(subscribeAuction, auctionSnapshot, auctionServerSnapshot);
+  const liveAuction = useMemo(() => new Map(auction.items.map((item) => [item.key, item])), [auction]);
 
   function save(next: SavedBook) {
     writeSnapshot(next);
   }
 
   const resolved = useMemo(
-    () => resolvePrices(catalog.prices, auctionByKey, mode, overrides),
-    [mode, overrides],
+    () => resolvePrices(catalog.prices, liveAuction, mode, overrides),
+    [liveAuction, mode, overrides],
   );
   const priceOf = useMemo(() => {
     const map = new Map(resolved.map((item) => [item.name, item.calc]));
@@ -306,6 +315,12 @@ export function Ledger() {
                 </SelectContent>
               </Select>
             </label>
+            <div className="flex flex-col items-start gap-2 sm:col-span-2">
+              <AuctionNote feed={auction} />
+              <Button variant="outline" onClick={() => void refreshAuction()}>
+                Обновить аукцион
+              </Button>
+            </div>
           </div>
           <BackupDialog
             importText={importText}
@@ -748,9 +763,9 @@ export function Ledger() {
           <section className="ledger-sheet rounded-2xl border p-4 sm:p-6">
             <h2 className="font-display text-3xl">Сырьё и аукцион</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Своя цена важнее аукциона. Если её нет, берётся что дешевле: лот или свой крафт. Снимок аукциона:{" "}
-              {snapshotLabel(catalog.auctionUpdated)}.
+              Своя цена важнее аукциона. Если её нет, берётся что дешевле: лот или свой крафт.
             </p>
+            <AuctionNote feed={auction} />
             <Input
               className="mt-3 max-w-md"
               value={priceQuery}
@@ -821,6 +836,25 @@ export function Ledger() {
       </Tabs>
     </main>
   );
+}
+
+function AuctionNote({ feed }: { feed: AuctionFeed }) {
+  if (feed.status === "sheet") {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Аукцион читается из общей Google-таблицы. Там цены обновляются раз в день. Сейчас в расчёте снимок{" "}
+        {snapshotLabel(feed.updated)}.
+      </p>
+    );
+  }
+  if (feed.status === "book") {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Общая таблица не открылась. В расчёте снимок книги от {snapshotLabel(catalog.auctionUpdated)}.
+      </p>
+    );
+  }
+  return <p className="text-sm text-muted-foreground">Сверяем аукцион с общей таблицей…</p>;
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
