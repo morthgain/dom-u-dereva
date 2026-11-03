@@ -142,6 +142,7 @@ export function Ledger() {
   const [importText, setImportText] = useState("");
   const [importError, setImportError] = useState("");
   const [tab, setTab] = useState("order");
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   function save(next: SavedBook) {
     writeSnapshot(next);
@@ -220,6 +221,25 @@ export function Ledger() {
     const items = padItems(order.items);
     items[index] = { ...items[index], ...patch };
     updateOrder(order.id, { items: items.filter((item) => item.name || item.qty) });
+  }
+
+  function clearSlot(order: Order, index: number) {
+    const items = padItems(order.items);
+    items[index] = { name: "", qty: 0 };
+    updateOrder(order.id, { items: items.filter((item) => item.name || item.qty) });
+  }
+
+  function removeOrder(id: string) {
+    const nextOrders = book.orders.filter((order) => order.id !== id);
+    const nextActive =
+      book.activeId === id ? (nextOrders[nextOrders.length - 1]?.id ?? "") : book.activeId;
+    save({ ...book, orders: nextOrders, activeId: nextActive });
+    setPendingDeleteId(null);
+  }
+
+  function editOrder(id: string) {
+    save({ ...book, activeId: id });
+    setTab("order");
   }
 
   if (!active) {
@@ -337,17 +357,38 @@ export function Ledger() {
 
         <TabsContent value="order" className="grid grid-cols-1 gap-4">
           <section className="ledger-sheet rounded-2xl border p-4 sm:p-6">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <h2 className="font-display text-3xl">Текущий заказ</h2>
-              <Button
-                onClick={() => {
-                  const order = blankOrder();
-                  save({ ...book, orders: [...book.orders, order], activeId: order.id });
-                }}
-              >
-                Новый заказ
-              </Button>
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="font-display text-3xl">Редактирование заказа</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {active.customer || active.text || "Новая строка журнала"} · {active.status}. Правки сразу пишутся в журнал.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  onClick={() => {
+                    const order = blankOrder();
+                    save({ ...book, orders: [...book.orders, order], activeId: order.id });
+                  }}
+                >
+                  Новый заказ
+                </Button>
+                <Button variant="destructive" onClick={() => setPendingDeleteId(active.id)}>
+                  Удалить заказ
+                </Button>
+              </div>
             </div>
+            {pendingDeleteId === active.id && (
+              <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg bg-[oklch(0.9_0.04_70)] px-3 py-2 text-sm">
+                <p>Удалить этот заказ из журнала?</p>
+                <Button size="sm" variant="destructive" onClick={() => removeOrder(active.id)}>
+                  Да, удалить
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setPendingDeleteId(null)}>
+                  Оставить
+                </Button>
+              </div>
+            )}
             <label className="grid gap-1 text-sm">
               Текст заказа
               <textarea
@@ -433,7 +474,8 @@ export function Ledger() {
                     <th className="py-2 pr-2 font-medium">Себест. 1 шт</th>
                     <th className="py-2 pr-2 font-medium">Себестоимость</th>
                     <th className="py-2 pr-2 font-medium">Заказчику</th>
-                    <th className="py-2 font-medium">Статус</th>
+                    <th className="py-2 pr-2 font-medium">Статус</th>
+                    <th className="py-2 font-medium" />
                   </tr>
                 </thead>
                 <tbody>
@@ -463,7 +505,19 @@ export function Ledger() {
                         <td className="py-2 pr-2">{groschen(line?.unit)}</td>
                         <td className="py-2 pr-2">{groschen(line?.cost)}</td>
                         <td className="py-2 pr-2">{groschen(line?.customer)}</td>
-                        <td className="py-2">{line?.status ?? ""}</td>
+                        <td className="py-2 pr-2">{line?.status ?? ""}</td>
+                        <td className="py-2 text-right">
+                          {(slot.name || slot.qty > 0) && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => clearSlot(active, index)}
+                              aria-label={`Убрать позицию ${index + 1}`}
+                            >
+                              Убрать
+                            </Button>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
@@ -596,16 +650,24 @@ export function Ledger() {
                         <td className="py-2 pr-2">{order.status}</td>
                         <td className="py-2 pr-2">{groschen(price)}</td>
                         <td className="py-2 text-right">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              save({ ...book, activeId: order.id });
-                              setTab("order");
-                            }}
-                          >
-                            Открыть
-                          </Button>
+                          <div className="flex justify-end gap-2">
+                            <Button variant="outline" size="sm" onClick={() => editOrder(order.id)}>
+                              Изменить
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => setPendingDeleteId(order.id)}>
+                              Удалить
+                            </Button>
+                          </div>
+                          {pendingDeleteId === order.id && (
+                            <div className="mt-2 flex justify-end gap-2">
+                              <Button size="sm" variant="destructive" onClick={() => removeOrder(order.id)}>
+                                Да, удалить
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => setPendingDeleteId(null)}>
+                                Оставить
+                              </Button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     );
