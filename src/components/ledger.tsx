@@ -30,7 +30,7 @@ import {
 import { catalog, productByName } from "@/lib/catalog";
 import { purchaseList, quoteOrder, resolvePrices } from "@/lib/calc";
 import { groschen } from "@/lib/format";
-import { parseOrderText } from "@/lib/parse";
+import { parseOrderText, searchProducts } from "@/lib/parse";
 import type { AuctionMode, Order, OrderItem } from "@/lib/types";
 
 const STORAGE_KEY = "dom-u-dereva-ledger-v1";
@@ -190,11 +190,9 @@ export function Ledger() {
   }, []);
 
   const visibleProducts = useMemo(() => {
-    const query = productQuery.trim().toLowerCase();
-    return catalog.products
-      .filter((product) => profession === "все" || product.profession === profession)
-      .filter((product) => !query || product.name.toLowerCase().includes(query) || product.lk.toLowerCase().includes(query))
-      .slice(0, 40);
+    const pool = catalog.products.filter((product) => profession === "все" || product.profession === profession);
+    if (!productQuery.trim()) return pool.slice(0, 40).map((product) => ({ product, alias: null as string | null }));
+    return searchProducts(productQuery, pool, 40);
   }, [productQuery, profession]);
 
   const visiblePrices = useMemo(() => {
@@ -425,7 +423,8 @@ export function Ledger() {
                 Разобрать текст
               </Button>
               <p className="self-center text-sm text-muted-foreground">
-                До пяти позиций. Число можно поставить в начале или в конце.
+                До пяти позиций. Число можно поставить в начале или в конце. Название можно писать как в игре:
+                книга подставит строку рецепта.
               </p>
             </div>
             {active.unparsed.length > 0 && (
@@ -697,12 +696,13 @@ export function Ledger() {
           <section className="ledger-sheet rounded-2xl border p-4 sm:p-6">
             <h2 className="font-display text-3xl">Изделия</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Себестоимость одной штуки — крафт делить на выход. Цена заказчику уже с наценкой мастерской.
+              Себестоимость одной штуки — крафт делить на выход. Цена заказчику уже с наценкой мастерской. Поиск
+              понимает и название из игры.
             </p>
             <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_16rem]">
               <Input
                 value={productQuery}
-                placeholder="Название или имя в ЛК"
+                placeholder="Название в игре, в книге или в ЛК"
                 onChange={(event) => setProductQuery(event.target.value)}
                 aria-label="Поиск изделия"
               />
@@ -729,7 +729,7 @@ export function Ledger() {
                       </td>
                     </tr>
                   )}
-                  {visibleProducts.map((product) => {
+                  {visibleProducts.map(({ product, alias }) => {
                     const row = quoteOrder(
                       [{ name: product.name, qty: 1 }],
                       productByName,
@@ -742,6 +742,7 @@ export function Ledger() {
                       <tr key={product.name} className="border-t">
                         <td className="py-2 pr-2">
                           <div>{product.name}</div>
+                          {alias && <div className="text-xs text-muted-foreground">в игре: {alias}</div>}
                           <div className="text-xs text-muted-foreground">{product.composition}</div>
                         </td>
                         <td className="py-2 pr-2">{product.profession}</td>
@@ -904,11 +905,7 @@ function Choice({
 
 function ProductField({ value, onChange }: { value: string; onChange: (name: string) => void }) {
   const [open, setOpen] = useState(false);
-  const query = value.trim().toLowerCase();
-  const matches =
-    query.length < 1
-      ? []
-      : catalog.products.filter((product) => product.name.toLowerCase().includes(query)).slice(0, 8);
+  const matches = searchProducts(value, catalog.products, 8);
   return (
     <div className="relative">
       <Input
@@ -924,7 +921,7 @@ function ProductField({ value, onChange }: { value: string; onChange: (name: str
       />
       {open && matches.length > 0 && (
         <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-lg border bg-popover p-1 shadow-md">
-          {matches.map((product) => (
+          {matches.map(({ product, alias }) => (
             <li key={product.name}>
               <button
                 type="button"
@@ -935,7 +932,8 @@ function ProductField({ value, onChange }: { value: string; onChange: (name: str
                   setOpen(false);
                 }}
               >
-                {product.name}
+                <span className="block">{product.name}</span>
+                {alias && <span className="block text-xs text-muted-foreground">в игре: {alias}</span>}
               </button>
             </li>
           ))}

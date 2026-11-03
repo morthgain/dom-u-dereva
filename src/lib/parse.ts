@@ -1,4 +1,35 @@
+import { GAME_NAMES } from "./game-names";
 import type { Product } from "./types";
+
+const STOP = new Set([
+  "на",
+  "из",
+  "с",
+  "со",
+  "и",
+  "для",
+  "от",
+  "в",
+  "во",
+  "по",
+  "к",
+  "ко",
+  "а",
+  "о",
+  "у",
+  "об",
+  "обо",
+  "под",
+  "над",
+  "при",
+  "без",
+  "до",
+  "же",
+  "ли",
+  "бы",
+  "декор",
+  "вар",
+]);
 
 export function normalizeName(value: string): string {
   return value
@@ -11,13 +42,89 @@ export function normalizeName(value: string): string {
     .trim();
 }
 
-function matchProduct(query: string, products: { name: string; norm: string }[]): string | null {
-  const exact = products.find((product) => product.norm === query);
+type Alias = { catalog: string; name: string; norm: string; tokens: string[] };
+
+const aliases: Alias[] = GAME_NAMES.flatMap((entry) =>
+  entry.names.map((name) => ({
+    catalog: entry.catalog,
+    name,
+    norm: normalizeName(name),
+    tokens: tokensOf(normalizeName(name)),
+  })),
+);
+
+const aliasesByCatalog = new Map<string, Alias[]>();
+const aliasByNorm = new Map<string, string>();
+for (const alias of aliases) {
+  const list = aliasesByCatalog.get(alias.catalog) ?? [];
+  list.push(alias);
+  aliasesByCatalog.set(alias.catalog, list);
+  if (!aliasByNorm.has(alias.norm)) aliasByNorm.set(alias.norm, alias.catalog);
+}
+
+function tokensOf(norm: string): string[] {
+  return norm.split(" ").filter((token) => token && !STOP.has(token));
+}
+
+function foldToken(token: string, rustic: boolean): string {
+  if (rustic && (token.startsWith("деревенск") || token.startsWith("прост"))) return "прост";
+  if (token.startsWith("двурог") || token.startsWith("двойн")) return "двойн";
+  return token;
+}
+
+function isCarpenter(product: Product): boolean {
+  return product.profession === "СТОЛЯР";
+}
+
+type Indexed = {
+  name: string;
+  norm: string;
+  tokens: string[];
+  carpenter: boolean;
+};
+
+function indexProducts(products: Product[]): Indexed[] {
+  return products.map((product) => {
+    const norm = normalizeName(product.name);
+    return { name: product.name, norm, tokens: tokensOf(norm), carpenter: isCarpenter(product) };
+  });
+}
+
+function tokenSubsetName(query: string, products: Indexed[]): string | null {
+  const queryTokens = tokensOf(query).map((token) => foldToken(token, true));
+  if (queryTokens.length < 2) return null;
+  let bestCount = 0;
+  const winners: string[] = [];
+  for (const product of products) {
+    const productTokens = product.tokens.map((token) => foldToken(token, product.carpenter));
+    if (productTokens.length < 2) continue;
+    if (!productTokens.every((token) => queryTokens.includes(token))) continue;
+    const count = new Set(productTokens).size;
+    if (count > bestCount) {
+      bestCount = count;
+      winners.length = 0;
+      winners.push(product.name);
+    } else if (count === bestCount && !winners.includes(product.name)) {
+      winners.push(product.name);
+    }
+  }
+  return winners.length === 1 ? winners[0] : null;
+}
+
+export function matchProductName(query: string, products: Product[]): string | null {
+  const normalized = normalizeName(query);
+  if (!normalized) return null;
+  const index = indexProducts(products);
+
+  const exact = index.find((product) => product.norm === normalized);
   if (exact) return exact.name;
 
+  const alias = aliasByNorm.get(normalized);
+  if (alias && index.some((product) => product.name === alias)) return alias;
+
   let contained: { name: string; length: number } | null = null;
-  for (const product of products) {
-    if (product.norm.length >= 3 && query.includes(product.norm)) {
+  for (const product of index) {
+    if (product.norm.length >= 3 && normalized.includes(product.norm)) {
       if (!contained || product.norm.length > contained.length) {
         contained = { name: product.name, length: product.norm.length };
       }
@@ -26,21 +133,82 @@ function matchProduct(query: string, products: { name: string; norm: string }[])
   if (contained) return contained.name;
 
   let covering: { name: string; length: number } | null = null;
-  for (const product of products) {
-    if (query.length >= 4 && product.norm.includes(query)) {
+  for (const product of index) {
+    if (normalized.length >= 4 && product.norm.includes(normalized)) {
       if (!covering || product.norm.length < covering.length) {
         covering = { name: product.name, length: product.norm.length };
       }
     }
   }
-  return covering?.name ?? null;
+  if (covering) return covering.name;
+
+  return tokenSubsetName(normalized, index);
+}
+
+export type ProductHit = { product: Product; alias: string | null; rank: number };
+
+export function searchProducts(query: string, products: Product[], limit = 8): ProductHit[] {
+  const normalized = normalizeName(query);
+  if (normalized.length < 2) return [];
+  const queryTokens = tokensOf(normalized);
+  const hits: ProductHit[] = [];
+  const seen = new Set<string>();
+
+  for (const product of products) {
+    if (seen.has(product.name)) continue;
+    const norm = normalizeName(product.name);
+    const productTokens = tokensOf(norm);
+    const foldedProduct = productTokens.map((token) => foldToken(token, isCarpenter(product)));
+    const foldedQuery = queryTokens.map((token) => foldToken(token, true));
+    const productAliases = aliasesByCatalog.get(product.name) ?? [];
+    let rank = 0;
+    let alias: string | null = null;
+
+    if (norm === normalized || productAliases.some((item) => item.norm === normalized)) {
+      rank = 100;
+      alias = productAliases.find((item) => item.norm === normalized)?.name ?? null;
+    } else if (norm.startsWith(normalized) || productAliases.some((item) => item.norm.startsWith(normalized))) {
+      rank = 80;
+      alias = productAliases.find((item) => item.norm.startsWith(normalized))?.name ?? null;
+    } else if (foldedProduct.length >= 2 && foldedProduct.every((token) => foldedQuery.includes(token))) {
+      rank = 70;
+    } else if (norm.includes(normalized)) {
+      rank = 60;
+    } else if (
+      productAliases.some((item) => item.tokens.length >= 1 && item.tokens.every((token) => queryTokens.includes(token)))
+    ) {
+      rank = 55;
+      alias = productAliases.find((item) => item.tokens.every((token) => queryTokens.includes(token)))?.name ?? null;
+    } else if (product.lk.toLowerCase().includes(normalized)) {
+      rank = 40;
+    } else if (
+      foldedQuery.length >= 2 &&
+      foldedQuery.every((token) => foldedProduct.includes(token))
+    ) {
+      rank = 30;
+    } else if (
+      normalized.length >= 4 &&
+      productAliases.some((item) => item.tokens.some((token) => token.startsWith(normalized) || token === normalized))
+    ) {
+      rank = 25;
+      alias =
+        productAliases.find((item) => item.tokens.some((token) => token.startsWith(normalized) || token === normalized))
+          ?.name ?? null;
+    }
+
+    if (!rank) continue;
+    seen.add(product.name);
+    hits.push({ product, alias, rank });
+  }
+
+  hits.sort((a, b) => b.rank - a.rank || a.product.name.length - b.product.name.length);
+  return hits.slice(0, limit);
 }
 
 export function parseOrderText(
   text: string,
   products: Product[],
 ): { items: { name: string; qty: number }[]; unparsed: string[] } {
-  const index = products.map((product) => ({ name: product.name, norm: normalizeName(product.name) }));
   const chunks = text
     .split(/[,;\n]+/)
     .map((chunk) => chunk.trim())
@@ -60,8 +228,8 @@ export function parseOrderText(
       qty = Number(trailing[2].replace(",", "."));
       namePart = trailing[1];
     }
-    const query = normalizeName(namePart.replace(/\d+\s*%/g, " "));
-    const found = matchProduct(query, index);
+    const query = namePart.replace(/\d+\s*%/g, " ");
+    const found = matchProductName(query, products);
     if (!found || !qty) {
       unparsed.push(chunk);
       continue;
