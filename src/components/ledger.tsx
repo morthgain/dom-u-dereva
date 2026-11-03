@@ -37,6 +37,30 @@ import type { AuctionMode, Order, OrderItem, Product } from "@/lib/types";
 const STORAGE_KEY = "dom-u-dereva-ledger-v1";
 const STORAGE_EVENT = "ledger-change";
 
+const hints = {
+  markup: "Проценты сверху себестоимости на все заказы. 10 — это 10%.",
+  auction: "Какую цену аукциона брать: самый дешёвый лот сейчас или среднюю за 7 дней.",
+  orderText:
+    "До пяти позиций через запятую, точку с запятой или с новой строки. Число можно в начале или в конце: «3 настой календулы» или «настой календулы 3». Название можно писать как в игре. Если строки изделий ещё пустые, текст разберётся сам, когда уйдёте из поля. Если уже заполнены — нажмите «Разобрать текст».",
+  customer: "Как зовут заказчика. Так строка подписана в журнале.",
+  place: "Откуда заказчик: деревня, город или постоялый двор.",
+  profession: "Чья это работа. Список изделий по стрелке откроется на этой профессии.",
+  master: "Кто из мастерской берёт заказ.",
+  status:
+    "Пока стоит «Не взят», цена в журнале пересчитывается сама. Любой другой статус запоминает итог. Верните «Не взят» — и цена снова живая.",
+  discount: "Скидка заказчику в процентах, уже после наценки. 10 — это 10%.",
+  product:
+    "Название из книги или как в игре. Стрелка справа открывает список, внутри него можно сменить профессию. Стрелки клавиатуры листают список, Enter выбирает строку.",
+  qty: "Сколько штук нужно заказчику. Число крафтов — сколько целых партий рецепта на это количество.",
+  agreed: "Сумма, о которой уже договорились, в грошах. В итог не входит, это только запись.",
+  goodsSearch: "Часть названия: как в игре, как в книге или английское имя из ЛК.",
+  goodsProfession: "Оставить в таблице изделия одной профессии или показать все.",
+  priceSearch: "Часть названия ингредиента, чтобы быстрее найти строку.",
+  manualPrice: "Своя цена за одну штуку, в грошах. Она важнее аукциона. Сотрите число — вернётся цена из книги.",
+  importBook: "Вставьте сюда текст скачанного файла книги: заказы, наценка и свои цены.",
+  listProfession: "Какую профессию показать в списке. «Все профессии» — весь каталог.",
+};
+
 type SavedBook = {
   orders: Order[];
   activeId: string;
@@ -300,12 +324,13 @@ export function Ledger() {
                   if (!Number.isNaN(next)) save({ ...book, markup: Math.min(500, Math.max(0, next)) / 100 });
                 }}
                 aria-label="Наценка мастерской, проценты"
+                data-hint={hints.markup}
               />
             </label>
             <label className="grid gap-1 text-sm">
               Цена с аукциона
               <Select value={mode} onValueChange={(value) => save({ ...book, mode: value as AuctionMode })}>
-                <SelectTrigger className="w-full" aria-label="Цена с аукциона">
+                <SelectTrigger className="w-full" aria-label="Цена с аукциона" data-hint={hints.auction}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -408,6 +433,7 @@ export function Ledger() {
               <textarea
                 className="border-input bg-background min-h-20 w-full rounded-lg border px-3 py-2 text-base outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
                 value={active.text}
+                data-hint={hints.orderText}
                 placeholder="20 сильный настой календулы, 50 снадобье из мандрагоры"
                 onChange={(event) => updateOrder(active.id, { text: event.target.value })}
                 onBlur={(event) => {
@@ -436,10 +462,18 @@ export function Ledger() {
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <Field label="Имя заказчика">
-                <Input value={active.customer} onChange={(event) => updateOrder(active.id, { customer: event.target.value })} />
+                <Input
+                  value={active.customer}
+                  data-hint={hints.customer}
+                  onChange={(event) => updateOrder(active.id, { customer: event.target.value })}
+                />
               </Field>
               <Field label="Место проживания">
-                <Input value={active.place} onChange={(event) => updateOrder(active.id, { place: event.target.value })} />
+                <Input
+                  value={active.place}
+                  data-hint={hints.place}
+                  onChange={(event) => updateOrder(active.id, { place: event.target.value })}
+                />
               </Field>
               <Field label="Профессия">
                 <Choice
@@ -447,6 +481,7 @@ export function Ledger() {
                   options={catalog.professions}
                   onChange={(profession) => updateOrder(active.id, { profession })}
                   label="Профессия"
+                  hint={hints.profession}
                 />
               </Field>
               <Field label="Мастер">
@@ -455,6 +490,7 @@ export function Ledger() {
                   options={catalog.masters}
                   onChange={(master) => updateOrder(active.id, { master })}
                   label="Мастер"
+                  hint={hints.master}
                 />
               </Field>
               <Field label="Статус">
@@ -463,11 +499,13 @@ export function Ledger() {
                   options={catalog.statuses}
                   onChange={(status) => changeStatus(active, status)}
                   label="Статус"
+                  hint={hints.status}
                 />
               </Field>
               <Field label="Скидка, %">
                 <Input
                   inputMode="decimal"
+                  data-hint={hints.discount}
                   value={String(Math.round(active.discount * 1000) / 10)}
                   onChange={(event) => {
                     const next = Number(event.target.value.replace(",", "."));
@@ -509,6 +547,7 @@ export function Ledger() {
                           <Input
                             className="w-24"
                             inputMode="decimal"
+                            data-hint={hints.qty}
                             value={slot.qty ? String(slot.qty) : ""}
                             onChange={(event) => {
                               const qty = Number(event.target.value.replace(",", "."));
@@ -573,6 +612,7 @@ export function Ledger() {
                 <Input
                   className="mt-1 max-w-40"
                   inputMode="decimal"
+                  data-hint={hints.agreed}
                   value={active.manualPrice ?? ""}
                   onChange={(event) => {
                     const raw = event.target.value.replace(",", ".");
@@ -707,8 +747,15 @@ export function Ledger() {
                 placeholder="Название в игре, в книге или в ЛК"
                 onChange={(event) => setProductQuery(event.target.value)}
                 aria-label="Поиск изделия"
+                data-hint={hints.goodsSearch}
               />
-              <Choice value={profession} options={professions} onChange={setProfession} label="Фильтр профессии" />
+              <Choice
+                value={profession}
+                options={professions}
+                onChange={setProfession}
+                label="Фильтр профессии"
+                hint={hints.goodsProfession}
+              />
             </div>
             <div className="mt-3 overflow-x-auto">
               <table className="w-full min-w-[760px] text-sm">
@@ -775,6 +822,7 @@ export function Ledger() {
               placeholder="Ингредиент"
               onChange={(event) => setPriceQuery(event.target.value)}
               aria-label="Поиск сырья"
+              data-hint={hints.priceSearch}
             />
             <div className="mt-3 overflow-x-auto">
               <table className="w-full min-w-[760px] text-sm">
@@ -808,6 +856,7 @@ export function Ledger() {
                           inputMode="decimal"
                           value={item.manual ?? ""}
                           aria-label={`Цена вручную: ${item.name}`}
+                          data-hint={hints.manualPrice}
                           onChange={(event) => {
                             const raw = event.target.value.replace(",", ".");
                             const base = catalog.prices.find((price) => price.name === item.name)?.manual ?? null;
@@ -837,7 +886,99 @@ export function Ledger() {
           </section>
         </TabsContent>
       </Tabs>
+      <FieldHints />
     </main>
+  );
+}
+
+function FieldHints() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
+  useEffect(() => {
+    if (!ready) return;
+    const node = ref.current;
+    if (!node) return;
+    let text = "";
+
+    const place = (cursorX: number, cursorY: number) => {
+      node.hidden = false;
+      node.style.visibility = "hidden";
+      const rect = node.getBoundingClientRect();
+      let x = cursorX + 16;
+      let y = cursorY + 22;
+      if (x + rect.width > window.innerWidth - 8) x = cursorX - rect.width - 16;
+      if (y + rect.height > window.innerHeight - 8) y = cursorY - rect.height - 16;
+      x = Math.max(8, Math.min(x, window.innerWidth - rect.width - 8));
+      y = Math.max(8, Math.min(y, window.innerHeight - rect.height - 8));
+      node.style.left = `${x}px`;
+      node.style.top = `${y}px`;
+      node.style.visibility = "visible";
+    };
+
+    const show = (host: HTMLElement, cursorX: number, cursorY: number) => {
+      const next = host.dataset.hint ?? "";
+      if (!next) {
+        node.hidden = true;
+        text = "";
+        return;
+      }
+      if (next !== text) {
+        node.textContent = next;
+        text = next;
+      }
+      place(cursorX, cursorY);
+    };
+
+    const hide = () => {
+      node.hidden = true;
+      text = "";
+    };
+
+    const hostOf = (target: EventTarget | null) =>
+      target instanceof Element ? (target.closest("[data-hint]") as HTMLElement | null) : null;
+
+    const move = (event: MouseEvent) => {
+      const host = hostOf(event.target);
+      if (!host) {
+        hide();
+        return;
+      }
+      show(host, event.clientX, event.clientY);
+    };
+
+    const focus = (event: FocusEvent) => {
+      const host = hostOf(event.target);
+      if (!host) return;
+      const rect = host.getBoundingClientRect();
+      show(host, rect.left, rect.bottom);
+    };
+
+    const blur = (event: FocusEvent) => {
+      if (!hostOf(event.relatedTarget)) hide();
+    };
+
+    document.addEventListener("mousemove", move);
+    document.addEventListener("focusin", focus);
+    document.addEventListener("focusout", blur);
+    document.addEventListener("scroll", hide, true);
+    return () => {
+      document.removeEventListener("mousemove", move);
+      document.removeEventListener("focusin", focus);
+      document.removeEventListener("focusout", blur);
+      document.removeEventListener("scroll", hide, true);
+    };
+  }, [ready]);
+
+  if (!ready) return null;
+  return createPortal(
+    <div
+      ref={ref}
+      hidden
+      role="tooltip"
+      className="pointer-events-none fixed z-[80] max-w-72 rounded-lg border bg-[oklch(0.97_0.02_92)] px-3 py-2 text-sm leading-snug text-[oklch(0.28_0.03_55)] shadow-md"
+    />,
+    document.body,
   );
 }
 
@@ -883,15 +1024,17 @@ function Choice({
   options,
   onChange,
   label,
+  hint,
 }: {
   value: string;
   options: string[];
   onChange: (value: string) => void;
   label: string;
+  hint?: string;
 }) {
   return (
     <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="w-full" aria-label={label}>
+      <SelectTrigger className="w-full" aria-label={label} data-hint={hint}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -1015,7 +1158,7 @@ function ProductField({
   }
 
   return (
-    <div ref={rootRef} className="flex min-w-0">
+    <div ref={rootRef} className="flex min-w-0" data-hint={hints.product}>
       <Input
         value={value}
         placeholder="Начните название"
@@ -1059,6 +1202,7 @@ function ProductField({
               Профессия
               <select
                 aria-label="Профессия в списке"
+                data-hint={hints.listProfession}
                 className="h-7 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm text-foreground"
                 value={listProfession}
                 onChange={(event) => {
@@ -1132,6 +1276,7 @@ function BackupDialog({
           <textarea
             className="border-input min-h-28 w-full rounded-lg border bg-background px-3 py-2 text-sm"
             value={importText}
+            data-hint={hints.importBook}
             placeholder="Вставьте сюда содержимое файла"
             onChange={(event) => onImportText(event.target.value)}
           />
