@@ -346,6 +346,7 @@ export function Ledger() {
               </Button>
             </div>
           </div>
+          <div className="flex flex-col items-start gap-2">
           <BackupDialog
             importText={importText}
             importError={importError}
@@ -383,6 +384,14 @@ export function Ledger() {
               }
             }}
           />
+          <a
+            className="inline-flex h-8 items-center rounded-lg border border-border bg-background px-2.5 text-sm font-medium hover:bg-muted"
+            href="dom-u-dereva-mebel.xlsx"
+            download
+          >
+            Таблица «что сделано»
+          </a>
+          </div>
         </div>
       </header>
 
