@@ -391,6 +391,9 @@ export function Ledger() {
           >
             Таблица «что сделано»
           </a>
+          <p className="max-w-56 text-xs leading-snug text-muted-foreground">
+            В уже открытой таблице: Файл → Импортировать → Заменить текущий лист.
+          </p>
           </div>
         </div>
       </header>

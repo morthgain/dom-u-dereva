@@ -82,6 +82,7 @@ ITEMS = [
 
 HEADER_ROW = 5
 FIRST = HEADER_ROW + 1
+SLOTS = 150
 
 INK = "3A2A1C"
 GREEN = "234237"
@@ -112,11 +113,6 @@ def main() -> None:
     sheet = book.active
     sheet.title = "Список"
 
-    lists = book.create_sheet("Списки")
-    lists["A1"] = "Не сделано"
-    lists["A2"] = "Сделано"
-    lists.sheet_state = "hidden"
-
     sheet.merge_cells("A1:F1")
     sheet["A1"] = "Дом у дерева — что уже сделано"
     sheet["A1"].font = Font(name="Calibri", size=20, bold=True, color="F6F0E4")
@@ -125,9 +121,10 @@ def main() -> None:
     sheet.row_dimensions[1].height = 36
 
     sheet["A2"] = "Сделано"
-    sheet["B2"] = f'=COUNTIF(E{FIRST}:E500,"Сделано")'
+    last = FIRST + SLOTS - 1
+    sheet["B2"] = f'=COUNTIF(E{FIRST}:E{last},"Сделано")'
     sheet["C2"] = "из"
-    sheet["D2"] = f'=COUNTA(B{FIRST}:B500)'
+    sheet["D2"] = f'=COUNTA(B{FIRST}:B{last})'
     sheet["E2"] = "Осталось"
     sheet["F2"] = "=D2-B2"
     for cell, bold in (("A2", False), ("C2", False), ("E2", False)):
@@ -142,13 +139,14 @@ def main() -> None:
 
     sheet.merge_cells("A3:F3")
     sheet["A3"] = (
-        "В столбце «Статус» выберите «Сделано» или «Не сделано». "
-        "Если штук несколько, у каждой своя строка. Это отдельная таблица, не страница старой книги заказов."
+        "Нажмите ячейку в столбце «Статус» и выберите «Сделано» или «Не сделано». "
+        "Пустые строки внизу — запас: впишите изделие и выберите статус. "
+        "Это отдельная таблица, не страница старой книги заказов."
     )
     sheet["A3"].font = Font(name="Calibri", size=11, italic=True, color=INK)
     sheet["A3"].fill = fill("E7F0E4")
     sheet["A3"].alignment = Alignment(vertical="center", wrap_text=True, indent=1)
-    sheet.row_dimensions[3].height = 32
+    sheet.row_dimensions[3].height = 48
 
     sheet.row_dimensions[4].height = 8
 
@@ -160,9 +158,7 @@ def main() -> None:
         cell.alignment = center
         cell.border = thin
     sheet.row_dimensions[HEADER_ROW].height = 22
-    sheet.auto_filter.ref = f"A{HEADER_ROW}:F{HEADER_ROW}"
     sheet.freeze_panes = f"A{FIRST}"
-    sheet.auto_filter.ref = f"A{HEADER_ROW}:F500"
     sheet.sheet_view.showGridLines = False
     sheet.page_setup.fitToPage = True
     sheet.page_setup.fitToWidth = 1
@@ -178,10 +174,14 @@ def main() -> None:
             piece = f"{index} из {qty}" if qty > 1 else "1"
             rows.append((group, name, level, piece, book_name))
 
-    for offset, (group, name, level, piece, book_name) in enumerate(rows):
+    for offset in range(SLOTS):
         row = FIRST + offset
-        values = [group, name, level, piece, "Не сделано", book_name]
         stripe = CREAM if offset % 2 == 0 else CREAM_2
+        if offset < len(rows):
+            group, name, level, piece, book_name = rows[offset]
+            values = [group, name, level, piece, "Не сделано", book_name]
+        else:
+            values = [None, None, None, None, None, None]
         for col, value in enumerate(values, start=1):
             cell = sheet.cell(row, col, value)
             cell.font = Font(name="Calibri", size=12, color=INK)
@@ -190,20 +190,18 @@ def main() -> None:
             cell.alignment = center if col in (1, 3, 4, 5) else Alignment(vertical="center", indent=1)
         sheet.row_dimensions[row].height = 22
 
-    last = FIRST + len(rows) - 1
     sheet.auto_filter.ref = f"A{HEADER_ROW}:F{last}"
 
+    # The two choices live in the cell itself. A list on another sheet
+    # disappears when Google Sheets imports the file, so the arrow never shows.
     check = DataValidation(
         type="list",
-        formula1="=Списки!$A$1:$A$2",
-        allow_blank=False,
-        showDropDown=False,
+        formula1='"Не сделано,Сделано"',
+        allow_blank=True,
+        showDropDown=None,
         showErrorMessage=True,
         errorTitle="Статус",
         error="Выберите «Сделано» или «Не сделано».",
-        promptTitle="Статус",
-        prompt="Выберите, сделана эта штука или ещё нет.",
-        showInputMessage=True,
     )
     check.add(f"E{FIRST}:E{last}")
     sheet.add_data_validation(check)
@@ -258,7 +256,7 @@ def main() -> None:
 
     out = "public/dom-u-dereva-mebel.xlsx"
     book.save(out)
-    print(f"{out}: {len(ITEMS)} названий, {len(rows)} строк")
+    print(f"{out}: {len(ITEMS)} названий, {len(rows)} заполненных, {SLOTS} строк со списком статуса")
 
 
 if __name__ == "__main__":
