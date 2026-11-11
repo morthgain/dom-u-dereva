@@ -218,7 +218,10 @@ export function Ledger() {
   const visibleProducts = useMemo(() => {
     const pool = catalog.products.filter((product) => profession === "все" || product.profession === profession);
     if (!productQuery.trim()) {
-      return pool.slice(0, 40).map((product) => ({ product, alias: gameLabel(product.name) }));
+      const shown = profession === "все" ? pool.slice(0, 40) : pool;
+      return [...shown]
+        .sort((a, b) => (gameLabel(a.name) ?? a.name).localeCompare(gameLabel(b.name) ?? b.name, "ru"))
+        .map((product) => ({ product, alias: gameLabel(product.name) }));
     }
     return searchProducts(productQuery, pool, 40);
   }, [productQuery, profession]);
@@ -805,8 +808,8 @@ export function Ledger() {
                     return (
                       <tr key={product.name} className="border-t">
                         <td className="py-2 pr-2">
-                          <div>{product.name}</div>
-                          {alias && <div className="text-xs text-muted-foreground">в игре: {alias}</div>}
+                          <div>{alias ?? product.name}</div>
+                          {alias && <div className="text-xs text-muted-foreground">в книге: {product.name}</div>}
                           <div className="text-xs text-muted-foreground">{product.composition}</div>
                         </td>
                         <td className="py-2 pr-2">{product.profession}</td>
@@ -1075,8 +1078,12 @@ function productChoices(query: string, profession: string): ProductHit[] {
     if (!unique.has(product.name)) unique.set(product.name, product);
   }
   return [...unique.values()]
-    .filter((product) => !needle || product.name.toLowerCase().includes(needle))
-    .sort((a, b) => a.name.localeCompare(b.name, "ru"))
+    .filter((product) => {
+      if (!needle) return true;
+      const game = gameLabel(product.name)?.toLowerCase() ?? "";
+      return product.name.toLowerCase().includes(needle) || game.includes(needle);
+    })
+    .sort((a, b) => (gameLabel(a.name) ?? a.name).localeCompare(gameLabel(b.name) ?? b.name, "ru"))
     .map((product) => ({ product, alias: gameLabel(product.name), rank: 0 }));
 }
 
@@ -1246,10 +1253,10 @@ function ProductField({
                     onMouseEnter={() => setCursor(index)}
                     onClick={() => choose(product.name)}
                   >
-                    <span className="block">{product.name}</span>
+                    <span className="block">{alias ?? product.name}</span>
                     <span className="block text-xs text-muted-foreground">
                       {alias
-                        ? `в игре: ${alias} · ${product.profession}${product.level ? ` · ур. ${product.level}` : ""}`
+                        ? `в книге: ${product.name} · ${product.profession}${product.level ? ` · ур. ${product.level}` : ""}`
                         : `${product.profession}${product.level ? ` · ур. ${product.level}` : ""}`}
                     </span>
                   </button>
