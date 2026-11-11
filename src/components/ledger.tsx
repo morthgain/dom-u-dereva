@@ -31,6 +31,7 @@ import {
 import { catalog, productByName } from "@/lib/catalog";
 import { purchaseList, quoteOrder, resolvePrices } from "@/lib/calc";
 import { groschen } from "@/lib/format";
+import { gameLabel } from "@/lib/game-names";
 import { parseOrderText, searchProducts, type ProductHit } from "@/lib/parse";
 import type { AuctionMode, Order, OrderItem, Product } from "@/lib/types";
 
@@ -216,7 +217,9 @@ export function Ledger() {
 
   const visibleProducts = useMemo(() => {
     const pool = catalog.products.filter((product) => profession === "все" || product.profession === profession);
-    if (!productQuery.trim()) return pool.slice(0, 40).map((product) => ({ product, alias: null as string | null }));
+    if (!productQuery.trim()) {
+      return pool.slice(0, 40).map((product) => ({ product, alias: gameLabel(product.name) }));
+    }
     return searchProducts(productQuery, pool, 40);
   }, [productQuery, profession]);
 
@@ -1074,7 +1077,7 @@ function productChoices(query: string, profession: string): ProductHit[] {
   return [...unique.values()]
     .filter((product) => !needle || product.name.toLowerCase().includes(needle))
     .sort((a, b) => a.name.localeCompare(b.name, "ru"))
-    .map((product) => ({ product, alias: null, rank: 0 }));
+    .map((product) => ({ product, alias: gameLabel(product.name), rank: 0 }));
 }
 
 function ProductField({
@@ -1245,7 +1248,9 @@ function ProductField({
                   >
                     <span className="block">{product.name}</span>
                     <span className="block text-xs text-muted-foreground">
-                      {alias ? `в игре: ${alias}` : `${product.profession}${product.level ? ` · ур. ${product.level}` : ""}`}
+                      {alias
+                        ? `в игре: ${alias} · ${product.profession}${product.level ? ` · ур. ${product.level}` : ""}`
+                        : `${product.profession}${product.level ? ` · ур. ${product.level}` : ""}`}
                     </span>
                   </button>
                 </li>

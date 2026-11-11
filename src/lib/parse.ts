@@ -66,37 +66,31 @@ function tokensOf(norm: string): string[] {
   return norm.split(" ").filter((token) => token && !STOP.has(token));
 }
 
-function foldToken(token: string, rustic: boolean): string {
-  if (rustic && (token.startsWith("деревенск") || token.startsWith("прост"))) return "прост";
+function foldToken(token: string): string {
   if (token.startsWith("двурог") || token.startsWith("двойн")) return "двойн";
   return token;
-}
-
-function isCarpenter(product: Product): boolean {
-  return product.profession === "СТОЛЯР";
 }
 
 type Indexed = {
   name: string;
   norm: string;
   tokens: string[];
-  carpenter: boolean;
 };
 
 function indexProducts(products: Product[]): Indexed[] {
   return products.map((product) => {
     const norm = normalizeName(product.name);
-    return { name: product.name, norm, tokens: tokensOf(norm), carpenter: isCarpenter(product) };
+    return { name: product.name, norm, tokens: tokensOf(norm) };
   });
 }
 
 function tokenSubsetName(query: string, products: Indexed[]): string | null {
-  const queryTokens = tokensOf(query).map((token) => foldToken(token, true));
+  const queryTokens = tokensOf(query).map((token) => foldToken(token));
   if (queryTokens.length < 2) return null;
   let bestCount = 0;
   const winners: string[] = [];
   for (const product of products) {
-    const productTokens = product.tokens.map((token) => foldToken(token, product.carpenter));
+    const productTokens = product.tokens.map((token) => foldToken(token));
     if (productTokens.length < 2) continue;
     if (!productTokens.every((token) => queryTokens.includes(token))) continue;
     const count = new Set(productTokens).size;
@@ -116,11 +110,13 @@ export function matchProductName(query: string, products: Product[]): string | n
   if (!normalized) return null;
   const index = indexProducts(products);
 
-  const exact = index.find((product) => product.norm === normalized);
-  if (exact) return exact.name;
-
+  // A game name can be the same words as a different book row. The game name wins,
+  // so «фонарь» is the level-5 lantern and not the level-2 row the book also calls «Фонарь».
   const alias = aliasByNorm.get(normalized);
   if (alias && index.some((product) => product.name === alias)) return alias;
+
+  const exact = index.find((product) => product.norm === normalized);
+  if (exact) return exact.name;
 
   let contained: { name: string; length: number } | null = null;
   for (const product of index) {
@@ -158,14 +154,14 @@ export function searchProducts(query: string, products: Product[], limit = 8): P
     if (seen.has(product.name)) continue;
     const norm = normalizeName(product.name);
     const productTokens = tokensOf(norm);
-    const foldedProduct = productTokens.map((token) => foldToken(token, isCarpenter(product)));
-    const foldedQuery = queryTokens.map((token) => foldToken(token, true));
+    const foldedProduct = productTokens.map((token) => foldToken(token));
+    const foldedQuery = queryTokens.map((token) => foldToken(token));
     const productAliases = aliasesByCatalog.get(product.name) ?? [];
     let rank = 0;
     let alias: string | null = null;
 
     if (norm === normalized || productAliases.some((item) => item.norm === normalized)) {
-      rank = 100;
+      rank = productAliases.some((item) => item.norm === normalized) ? 110 : 100;
       alias = productAliases.find((item) => item.norm === normalized)?.name ?? null;
     } else if (norm.startsWith(normalized) || productAliases.some((item) => item.norm.startsWith(normalized))) {
       rank = 80;
